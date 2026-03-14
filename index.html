@@ -3,33 +3,56 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Merkraum - Deine persönlichen Pinnwände</title>
-    <!-- Tailwind CSS für das Design -->
+    <title>Merkraum - Deine Cloud Pinnwand</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- React & Babel für die Live-Ausführung im Browser -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- Lucide Icons Bibliothek -->
-    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Supabase SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap');
+        
+        :root {
+            --bg-main: #fdfcfb;
+            --accent: #8b5e3c;
+            --accent-hover: #724a2e;
+            --pinnwand: #ebe4d8;
+            --pinnwand-border: #dcd2c1;
+            --sidebar: #2d2824;
+            --text-dark: #3e362e;
+        }
+
         body { 
             font-family: 'Inter', sans-serif; 
-            background-color: #f8f9fa;
+            background-color: var(--bg-main); 
+            -webkit-tap-highlight-color: transparent; 
+            color: var(--text-dark);
+            overflow-x: hidden;
         }
-        /* Custom Scrollbar für den Pinnwand-Look */
-        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #dcd2c1; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: var(--pinnwand-border); border-radius: 10px; }
         
-        /* Animationen */
-        .animate-fade-in {
-            animation: fadeIn 0.3s ease-out;
+        .animate-fade-in { animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes fadeIn { 
+            from { opacity: 0; transform: translateY(12px); } 
+            to { opacity: 1; transform: translateY(0); } 
         }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+
+        button, .cursor-pointer { touch-action: manipulation; }
+        
+        .loading-shimmer {
+            background: linear-gradient(90deg, #f0f0f0 25%, #f8f8f8 50%, #f0f0f0 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
         }
     </style>
 </head>
@@ -37,46 +60,50 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+        // --- KONFIGURATION ---
+        const SUPABASE_URL = "https://jzqophvooxlzmsqgicly.supabase.co"; 
+        const SUPABASE_ANON_KEY = "sb_publishable_Yj3tUq1Yy2Y8Yw2AgeBKbA_DYf5SDRI"; 
+        const BUCKET_NAME = "merkraum-media"; // Dein soeben konfigurierter Bucket
 
-        // Robuste Icon-Komponente für die Browser-Nutzung ohne Imports
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        const { useState, useEffect, useRef, useCallback } = React;
+
+        const BOARD_COLORS = ['#8b5e3c', '#c27803', '#92400e', '#d97706', '#4d7c0f', '#1e40af', '#be123c', '#431407'];
+        const getBoardColor = (id) => {
+            if (!id) return BOARD_COLORS[0];
+            const num = typeof id === 'number' ? id : id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+            return BOARD_COLORS[num % BOARD_COLORS.length];
+        };
+
         const Icon = ({ name, size = 18, className = "" }) => {
-            const [svg, setSvg] = useState("");
-            useEffect(() => {
-                const icon = lucide.icons[name];
-                if (icon && Array.isArray(icon[2])) {
-                    const svgString = icon[2].map(tag => {
-                        const tagName = tag[0];
-                        const attributes = tag[1] || {};
-                        const attrString = Object.entries(attributes)
-                            .map(([k, v]) => `${k}="${v}"`)
-                            .join(' ');
-                        return `<${tagName} ${attrString} />`;
-                    }).join('');
-                    setSvg(svgString);
-                }
-            }, [name]);
-            
+            const icons = {
+                board: <g><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M9 21V9" /></g>,
+                pin: <path d="M15 4.5l-4 4L7 10l-1.5 1.5M12 2l8 8-2 2M9 22l2-2M11 15l4.5 4.5M12 13l-4-4" />,
+                plus: <path d="M12 5v14M5 12h14" />,
+                edit3: <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />,
+                trash2: <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6" />,
+                menu: <path d="M3 12h18M3 6h18M3 18h18" />,
+                x: <path d="M18 6L6 18M6 6l12 12" />,
+                grid: <g><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></g>,
+                search: <g><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /></g>,
+                chevronleft: <path d="M15 18l-6-6 6-6" />,
+                save: <g><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></g>,
+                image: <g><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></g>,
+                loader: <g><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" /></g>
+            };
+            const iconName = (name || "").toLowerCase();
             return (
-                <svg 
-                    xmlns="http://www.w3.org/2000/svg" 
-                    width={size} 
-                    height={size} 
-                    viewBox="0 0 24 24" 
-                    fill="none" 
-                    stroke="currentColor" 
-                    strokeWidth="2" 
-                    strokeLinecap="round" 
-                    strokeLinejoin="round" 
-                    className={className}
-                    dangerouslySetInnerHTML={{ __html: svg }}
-                />
+                <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                    {icons[iconName] || <circle cx="12" cy="12" r="10" />}
+                </svg>
             );
         };
 
         const generateId = () => Math.random().toString(36).substr(2, 9);
 
         const App = () => {
+            const [user, setUser] = useState(null);
             const [boards, setBoards] = useState([]);
             const [activeBoardId, setActiveBoardId] = useState('home');
             const [searchQuery, setSearchQuery] = useState('');
@@ -85,172 +112,193 @@
             const [editingEntry, setEditingEntry] = useState(null);
             const [editingBoard, setEditingBoard] = useState(null);
             const [entryTargetBoardId, setEntryTargetBoardId] = useState(null);
-            const [deleteConfirm, setDeleteConfirm] = useState({ show: false, type: null, id: null, boardId: null });
+            const [deleteConfirm, setDeleteConfirm] = useState({ show: false, type: null, id: null, boardId: null, name: '' });
+            const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+            const [actionError, setActionError] = useState(null);
+            const [isProcessing, setIsProcessing] = useState(false);
 
-            // Daten aus LocalStorage laden
-            useEffect(() => {
-                const saved = localStorage.getItem('merkraum_data');
-                if (saved) {
-                    try { setBoards(JSON.parse(saved)); } catch (e) { setBoards([]); }
-                }
+            const fetchBoards = useCallback(async () => {
+                const { data, error } = await supabaseClient.from('boards').select('*');
+                if (data) setBoards(data);
+                else if (error) console.error(error.message);
             }, []);
 
-            // Daten automatisch speichern
             useEffect(() => {
-                localStorage.setItem('merkraum_data', JSON.stringify(boards));
-            }, [boards]);
+                const initAuth = async () => {
+                    const { data: { user: currentUser } } = await supabaseClient.auth.getUser();
+                    if (currentUser) setUser(currentUser);
+                    else {
+                        const { data } = await supabaseClient.auth.signInAnonymously();
+                        if (data?.user) setUser(data.user);
+                    }
+                };
+                initAuth();
+            }, []);
 
-            const addOrUpdateBoard = (name) => {
+            useEffect(() => {
+                if (!user) return;
+                fetchBoards();
+                const channel = supabaseClient.channel('boards-realtime')
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'boards' }, fetchBoards)
+                    .subscribe();
+                return () => supabaseClient.removeChannel(channel);
+            }, [user, fetchBoards]);
+
+            // Zentrale Upload-Logik für den Storage
+            const uploadToStorage = async (fileOrBase64) => {
+                if (!fileOrBase64) return null;
+                
+                // Falls es bereits eine gespeicherte Supabase-URL ist, nichts tun
+                if (typeof fileOrBase64 === 'string' && fileOrBase64.startsWith('http') && !fileOrBase64.startsWith('data:')) return fileOrBase64;
+
+                let blob;
+                if (fileOrBase64 instanceof Blob || fileOrBase64 instanceof File) {
+                    blob = fileOrBase64;
+                } else if (typeof fileOrBase64 === 'string' && fileOrBase64.startsWith('data:')) {
+                    const res = await fetch(fileOrBase64);
+                    blob = await res.blob();
+                } else return null;
+
+                const fileExt = blob.type.split('/')[1] || 'png';
+                const fileName = `${user.id}/${Date.now()}-${generateId()}.${fileExt}`;
+                
+                const { data, error } = await supabaseClient.storage.from(BUCKET_NAME).upload(fileName, blob);
+                
+                if (error) throw error;
+                const { data: { publicUrl } } = supabaseClient.storage.from(BUCKET_NAME).getPublicUrl(data.path);
+                return publicUrl;
+            };
+
+            const addOrUpdateBoard = async (name) => {
                 if (editingBoard) {
-                    setBoards(boards.map(b => b.id === editingBoard.id ? { ...b, name } : b));
+                    await supabaseClient.from('boards').update({ name }).eq('id', editingBoard.id);
                 } else {
-                    const newBoard = { id: generateId(), name, entries: [], createdAt: new Date().toISOString() };
-                    setBoards([...boards, newBoard]);
+                    await supabaseClient.from('boards').insert([{ name, user_id: user.id, entries: [] }]);
                 }
                 setIsBoardModalOpen(false);
                 setEditingBoard(null);
+                fetchBoards();
             };
 
-            const deleteBoard = (id) => {
-                setBoards(boards.filter(b => b.id !== id));
-                if (activeBoardId === id) setActiveBoardId('home');
-                setDeleteConfirm({ show: false, type: null, id: null });
+            const deleteBoard = async (id) => {
+                await supabaseClient.from('boards').delete().eq('id', id);
+                if (activeBoardId == id) setActiveBoardId('home');
+                setDeleteConfirm({ show: false, id: null, type: null, boardId: null, name: '' });
+                fetchBoards();
             };
 
-            const addOrUpdateEntry = (entryData) => {
-                const targetId = entryTargetBoardId || activeBoardId;
-                const updatedBoards = boards.map(board => {
-                    if (board.id === targetId) {
-                        if (editingEntry) {
-                            return { ...board, entries: board.entries.map(e => e.id === editingEntry.id ? { ...entryData, id: e.id } : e) };
-                        } else {
-                            return { ...board, entries: [...board.entries, { ...entryData, id: generateId(), createdAt: new Date().toISOString() }] };
-                        }
+            const addOrUpdateEntry = async (entryData) => {
+                setIsProcessing(true);
+                setActionError(null);
+                try {
+                    // 1. Bild in den Storage laden
+                    let finalImageUrl = entryData.image;
+                    if (entryData.imageFile || (typeof entryData.image === 'string' && entryData.image.startsWith('data:'))) {
+                        finalImageUrl = await uploadToStorage(entryData.imageFile || entryData.image);
                     }
-                    return board;
-                });
-                setBoards(updatedBoards);
-                setIsEntryModalOpen(false);
-                setEditingEntry(null);
-                setEntryTargetBoardId(null);
+
+                    // 2. Datenbank-Eintrag vorbereiten
+                    const targetId = entryTargetBoardId || activeBoardId;
+                    const board = boards.find(b => b.id == targetId);
+                    if (!board) return;
+                    
+                    const entryToSave = { ...entryData, image: finalImageUrl };
+                    delete entryToSave.imageFile; // Temporäres File-Objekt entfernen
+
+                    let newEntries = [...(board.entries || [])];
+                    if (editingEntry) {
+                        newEntries = newEntries.map(e => e.id === editingEntry.id ? { ...entryToSave, id: e.id } : e);
+                    } else {
+                        newEntries.push({ ...entryToSave, id: generateId(), createdAt: new Date().toISOString() });
+                    }
+
+                    // 3. Datenbank aktualisieren
+                    const { error } = await supabaseClient.from('boards').update({ entries: newEntries }).eq('id', targetId);
+                    if (error) throw error;
+
+                    setIsEntryModalOpen(false);
+                    setEditingEntry(null);
+                    setEntryTargetBoardId(null);
+                    fetchBoards();
+                } catch (err) {
+                    console.error(err);
+                    setActionError("Fehler beim Speichern. Prüfe deine Storage-Policies!");
+                } finally {
+                    setIsProcessing(false);
+                }
             };
 
-            const deleteEntry = (entryId, boardId) => {
-                setBoards(boards.map(board => {
-                    if (board.id === boardId) return { ...board, entries: board.entries.filter(e => e.id !== entryId) };
-                    return board;
-                }));
-                setDeleteConfirm({ show: false, type: null, id: null });
+            const deleteEntry = async (entryId, boardId) => {
+                const board = boards.find(b => b.id == boardId);
+                if (!board) return;
+                const newEntries = (board.entries || []).filter(e => e.id !== entryId);
+                await supabaseClient.from('boards').update({ entries: newEntries }).eq('id', boardId);
+                setDeleteConfirm({ show: false, id: null, type: null, boardId: null, name: '' });
+                fetchBoards();
             };
 
-            const allEntries = boards.flatMap(b => b.entries.map(e => ({ ...e, boardName: b.name, boardId: b.id })));
-            const filteredEntries = searchQuery 
-                ? allEntries.filter(e => e.title.toLowerCase().includes(searchQuery.toLowerCase()) || e.content.toLowerCase().includes(searchQuery.toLowerCase()))
-                : [];
-
-            const activeBoard = boards.find(b => b.id === activeBoardId);
+            const activeBoard = boards.find(b => b.id == activeBoardId);
 
             return (
-                <div className="min-h-screen flex text-slate-900">
-                    {/* Sidebar */}
-                    <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col fixed h-full border-r border-slate-800 z-20">
-                        <div className="p-6 flex items-center gap-2 text-white font-bold text-xl">
-                            <Icon name="Pin" className="text-indigo-400 rotate-12" size={24} />
-                            Merkraum
+                <div className="min-h-screen flex text-[#3e362e]">
+                    {isMobileMenuOpen && <div className="fixed inset-0 bg-black/40 z-30 lg:hidden" onClick={() => setIsMobileMenuOpen(false)} />}
+                    
+                    {actionError && (
+                        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] bg-red-800 text-white px-8 py-5 rounded-3xl shadow-2xl flex items-center gap-4 animate-fade-in border border-white/10">
+                            <span className="text-sm font-bold">{actionError}</span>
+                            <button onClick={() => setActionError(null)} className="ml-4 hover:bg-white/10 p-2 rounded-full"><Icon name="x" size={18}/></button>
                         </div>
-                        <nav className="flex-1 px-4 space-y-1 overflow-y-auto custom-scrollbar">
-                            <button onClick={() => setActiveBoardId('home')} className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition-all ${activeBoardId === 'home' ? 'bg-indigo-600 text-white shadow-lg' : 'hover:bg-slate-800'}`}>
-                                <Icon name="Grid" size={16} /> Alle Pinnwände
-                            </button>
-                            <div className="pt-6 pb-2 px-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Deine Räume</div>
+                    )}
+
+                    {/* Sidebar */}
+                    <aside className={`w-72 bg-[#2d2824] text-slate-300 flex flex-col fixed h-full border-r border-[#3e362e] z-40 transition-transform duration-300 lg:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+                        <div className="p-8 flex items-center justify-between text-white font-bold text-xl">
+                            <div className="flex items-center gap-3 font-black tracking-tighter italic">
+                                <Icon name="board" className="text-amber-500" size={28} /> MERKRAUM
+                            </div>
+                            <button onClick={() => setIsMobileMenuOpen(false)} className="lg:hidden p-1 text-slate-500"><Icon name="x" size={20} /></button>
+                        </div>
+                        <nav className="flex-1 px-4 space-y-1.5 overflow-y-auto custom-scrollbar">
+                            <button onClick={() => { setActiveBoardId('home'); setIsMobileMenuOpen(false); }} className={`w-full text-left px-5 py-3.5 rounded-2xl text-sm font-bold flex items-center gap-3 transition-all ${activeBoardId === 'home' ? 'bg-[#8b5e3c] text-white shadow-lg' : 'hover:bg-[#3e362e]'}`}><Icon name="grid" size={18} /> Alle Pinnwände</button>
+                            <div className="pt-10 pb-3 px-5 text-[11px] font-black text-slate-500 uppercase tracking-widest">Deine Sammlungen</div>
                             {boards.map(board => (
-                                <div key={board.id} className="group flex items-center">
-                                    <button onClick={() => setActiveBoardId(board.id)} className={`flex-1 text-left px-3 py-2 rounded-lg text-sm truncate ${activeBoardId === board.id ? 'bg-slate-800 text-indigo-400' : 'hover:bg-slate-800/50'}`}>
-                                        {board.name}
-                                    </button>
-                                    <button onClick={(e) => { e.stopPropagation(); setEditingBoard(board); setIsBoardModalOpen(true); }} className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-500 hover:text-indigo-400 transition-all">
-                                        <Icon name="Edit3" size={14} />
-                                    </button>
-                                </div>
+                                <button key={board.id} onClick={() => { setActiveBoardId(board.id); setIsMobileMenuOpen(false); }} className={`w-full text-left px-5 py-3 rounded-xl text-sm truncate transition-all flex items-center gap-3 ${activeBoardId == board.id ? 'bg-[#3e362e] text-amber-200 font-bold' : 'hover:bg-[#3e362e]/50'}`}><div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: getBoardColor(board.id) }}></div>{board.name}</button>
                             ))}
                         </nav>
-                        <div className="p-4 border-t border-slate-800">
-                            <button onClick={() => { setEditingBoard(null); setIsBoardModalOpen(true); }} className="w-full py-2.5 bg-slate-800 rounded-xl text-sm font-medium hover:bg-slate-700 flex items-center justify-center gap-2 transition-all text-white border border-slate-700">
-                                <Icon name="Plus" size={16} /> Neue Pinnwand
-                            </button>
+                        <div className="p-6 border-t border-[#3e362e]">
+                            <button onClick={() => { setEditingBoard(null); setIsBoardModalOpen(true); }} className="w-full py-4 bg-[#3e362e] rounded-2xl text-sm font-black uppercase text-amber-100 border border-[#4a423a] hover:bg-[#4a423a] transition-all"><Icon name="plus" size={18} /> Neue Pinnwand</button>
                         </div>
                     </aside>
 
-                    {/* Main Content Area */}
-                    <main className="ml-64 p-8 w-full">
+                    <main className="flex-1 lg:ml-72 p-4 md:p-12 w-full transition-all">
                         <div className="max-w-7xl mx-auto">
-                            {/* Search Header */}
-                            <div className="mb-10 relative max-w-md">
-                                <Icon name="Search" className="absolute left-3 top-3 text-slate-400" size={18} />
-                                <input type="text" placeholder="Einträge suchen..." className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl shadow-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
-                            </div>
-
-                            {searchQuery ? (
-                                <div className="animate-fade-in">
-                                    <h2 className="text-2xl font-bold mb-6 text-slate-800">Suchergebnisse: "{searchQuery}"</h2>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                                        {filteredEntries.map(e => <EntryCard key={e.id} entry={e} onEdit={() => { setEntryTargetBoardId(e.boardId); setEditingEntry(e); setIsEntryModalOpen(true); }} />)}
-                                        {filteredEntries.length === 0 && <p className="text-slate-400 italic">Keine Treffer gefunden.</p>}
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
+                                <div className="flex items-center gap-4 flex-1">
+                                    <button onClick={() => setIsMobileMenuOpen(true)} className="lg:hidden p-4 bg-white border border-[#dcd2c1] rounded-2xl shadow-sm text-[#3e362e]"><Icon name="menu" size={24} /></button>
+                                    <div className="relative flex-1 md:max-w-md group">
+                                        <Icon name="search" className="absolute left-5 top-1/2 -translate-y-1/2 text-[#dcd2c1] group-focus-within:text-[#8b5e3c]" size={20} />
+                                        <input type="text" placeholder="Gedanken durchsuchen..." className="w-full pl-14 pr-6 py-4 bg-white border border-[#dcd2c1] rounded-3xl shadow-sm outline-none focus:border-[#8b5e3c]" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
                                     </div>
                                 </div>
-                            ) : activeBoardId === 'home' ? (
-                                <div className="animate-fade-in">
-                                    <h2 className="text-3xl font-bold mb-8 text-slate-900">Deine Pinnwände</h2>
-                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                                        {boards.map(b => (
-                                            <BoardCard 
-                                                key={b.id} 
-                                                board={b} 
-                                                onOpen={() => setActiveBoardId(b.id)} 
-                                                onEdit={() => { setEditingBoard(b); setIsBoardModalOpen(true); }} 
-                                                onDelete={() => setDeleteConfirm({ show: true, type: 'board', id: b.id })} 
-                                                onAddEntry={() => { setEntryTargetBoardId(b.id); setIsEntryModalOpen(true); }} 
-                                            />
-                                        ))}
-                                        {boards.length === 0 && (
-                                            <div className="col-span-full py-20 text-center border-2 border-dashed border-slate-200 rounded-3xl bg-white/50">
-                                                <p className="text-slate-400">Nutze "Neue Pinnwand" in der Sidebar, um zu starten.</p>
-                                            </div>
-                                        )}
-                                    </div>
+                                {activeBoardId !== 'home' && !searchQuery && (
+                                    <button onClick={() => { setEntryTargetBoardId(activeBoardId); setEditingEntry(null); setIsEntryModalOpen(true); }} className="bg-[#8b5e3c] text-white px-10 py-5 rounded-3xl font-black uppercase tracking-widest shadow-xl flex items-center gap-4 hover:bg-[#724a2e] active:scale-95 transition-all"><Icon name="plus" size={24} /> Neuer Eintrag</button>
+                                )}
+                            </div>
+
+                            {activeBoardId === 'home' && !searchQuery ? (
+                                <div className="animate-fade-in grid grid-cols-1 md:grid-cols-2 gap-10">
+                                    {boards.map(b => <BoardCard key={b.id} board={b} onOpen={() => setActiveBoardId(b.id)} onEdit={() => { setEditingBoard(b); setIsBoardModalOpen(true); }} onDelete={() => setDeleteConfirm({ show: true, type: 'board', id: b.id, name: b.name })} onAddEntry={() => { setEntryTargetBoardId(b.id); setIsEntryModalOpen(true); }} onEntryClick={(e) => { setEntryTargetBoardId(b.id); setEditingEntry(e); setIsEntryModalOpen(true); }} />)}
+                                    <div onClick={() => { setEditingBoard(null); setIsBoardModalOpen(true); }} className="py-32 flex flex-col items-center justify-center border-4 border-dashed border-[#dcd2c1] rounded-[4rem] bg-white/40 cursor-pointer hover:bg-white/70 transition-all group"><div className="w-20 h-20 bg-white rounded-3xl shadow-md flex items-center justify-center mb-6 group-hover:scale-110 transition-transform"><Icon name="plus" size={40} className="text-[#8b5e3c]" /></div><p className="text-[#a89688] font-black uppercase tracking-widest text-xs">Pinnwand erstellen</p></div>
                                 </div>
                             ) : (
                                 <div className="animate-fade-in">
-                                    <div className="flex flex-col mb-8">
-                                        <button onClick={() => setActiveBoardId('home')} className="flex items-center gap-1 text-slate-400 hover:text-indigo-600 text-sm mb-2 font-medium transition-colors">
-                                            <Icon name="ChevronLeft" size={16} /> Zurück zur Übersicht
-                                        </button>
-                                        <div className="flex justify-between items-end">
-                                            <div className="flex items-center gap-3">
-                                                <h2 className="text-4xl font-bold text-slate-900">{activeBoard?.name}</h2>
-                                                <button onClick={() => { setEditingBoard(activeBoard); setIsBoardModalOpen(true); }} className="p-2 text-slate-300 hover:text-indigo-600 transition-colors">
-                                                    <Icon name="Edit3" size={20} />
-                                                </button>
-                                            </div>
-                                            <button onClick={() => { setEntryTargetBoardId(activeBoardId); setEditingEntry(null); setIsEntryModalOpen(true); }} className="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-bold shadow-lg hover:bg-indigo-700 flex items-center gap-2 transition-all">
-                                                <Icon name="Plus" size={20} /> Neuer Eintrag
-                                            </button>
-                                        </div>
+                                    <button onClick={() => setActiveBoardId('home')} className="flex items-center gap-2 text-[#a89688] hover:text-[#8b5e3c] text-xs mb-5 font-black uppercase tracking-widest transition-colors"><Icon name="chevronleft" size={14} /> Alle Pinnwände</button>
+                                    <div className="flex items-center gap-5 mb-12 min-w-0">
+                                        <h2 className="text-5xl font-black text-[#3e362e] break-words tracking-tighter uppercase leading-none">{activeBoard?.name}</h2>
+                                        <button onClick={() => { setEditingBoard(activeBoard); setIsBoardModalOpen(true); }} className="p-3.5 bg-white shadow-sm border border-[#dcd2c1] rounded-2xl text-[#dcd2c1] hover:text-[#8b5e3c] transition-all"><Icon name="edit3" size={26} /></button>
                                     </div>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                                        {activeBoard?.entries.map(e => (
-                                            <EntryCard 
-                                                key={e.id} 
-                                                entry={e} 
-                                                onEdit={() => { setEntryTargetBoardId(activeBoardId); setEditingEntry(e); setIsEntryModalOpen(true); }} 
-                                                onDelete={() => setDeleteConfirm({ show: true, type: 'entry', id: e.id, boardId: activeBoardId })} 
-                                            />
-                                        ))}
-                                        {activeBoard?.entries.length === 0 && (
-                                            <div className="col-span-full py-20 text-center border-2 border-dashed border-slate-100 rounded-3xl">
-                                                <p className="text-slate-400 italic">Noch keine Einträge vorhanden.</p>
-                                            </div>
-                                        )}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+                                        {(activeBoard?.entries || []).map(e => <EntryCard key={e.id} entry={e} onEdit={() => { setEntryTargetBoardId(activeBoardId); setEditingEntry(e); setIsEntryModalOpen(true); }} onDelete={() => setDeleteConfirm({ show: true, type: 'entry', id: e.id, boardId: activeBoardId, name: e.title })} />)}
                                     </div>
                                 </div>
                             )}
@@ -258,82 +306,48 @@
                     </main>
 
                     {/* Modals */}
-                    {isBoardModalOpen && (
-                        <Modal title={editingBoard ? "Pinnwand bearbeiten" : "Neue Pinnwand"} onClose={() => { setIsBoardModalOpen(false); setEditingBoard(null); }}>
-                            <BoardForm initialName={editingBoard?.name} onSubmit={addOrUpdateBoard} />
-                        </Modal>
-                    )}
-                    {isEntryModalOpen && (
-                        <Modal title={editingEntry ? "Eintrag bearbeiten" : "Neuer Eintrag"} onClose={() => { setIsEntryModalOpen(false); setEditingEntry(null); }}>
-                            <EntryForm initialData={editingEntry} onSubmit={addOrUpdateEntry} />
-                        </Modal>
-                    )}
-                    {deleteConfirm.show && (
-                        <DeleteModal 
-                            onCancel={() => setDeleteConfirm({ show: false })} 
-                            onConfirm={() => deleteConfirm.type === 'board' ? deleteBoard(deleteConfirm.id) : deleteEntry(deleteConfirm.id, deleteConfirm.boardId)} 
-                        />
-                    )}
+                    {isBoardModalOpen && <Modal title={editingBoard ? "Umbenennen" : "Neu anlegen"} onClose={() => { setIsBoardModalOpen(false); setEditingBoard(null); }}><BoardForm initialName={editingBoard?.name} onSubmit={addOrUpdateBoard} /></Modal>}
+                    {isEntryModalOpen && <Modal title="Gedanke" onClose={() => { setIsEntryModalOpen(false); setEditingEntry(null); }}><EntryForm initialData={editingEntry} onSubmit={addOrUpdateEntry} isProcessing={isProcessing} /></Modal>}
+                    {deleteConfirm.show && <DeleteModal type={deleteConfirm.type} itemName={deleteConfirm.name} onCancel={() => setDeleteConfirm({ show: false, id: null, type: null, boardId: null, name: '' })} onConfirm={() => deleteConfirm.type === 'board' ? deleteBoard(deleteConfirm.id) : deleteEntry(deleteConfirm.id, deleteConfirm.boardId)} />}
                 </div>
             );
         };
 
-        const BoardCard = ({ board, onOpen, onEdit, onDelete, onAddEntry }) => (
-            <div className="bg-[#ebe4d8] rounded-3xl border-4 border-[#dcd2c1] shadow-lg flex flex-col h-[480px] overflow-hidden group">
-                <div className="p-5 bg-[#e3dbc9] border-b border-[#dcd2c1] flex justify-between items-center">
-                    <div className="flex items-center gap-3 font-bold text-slate-800 cursor-pointer hover:text-indigo-700 transition-colors" onClick={onOpen}>
-                        <div className="w-2.5 h-2.5 rounded-full bg-red-400 shadow-sm"></div>
-                        <span className="truncate max-w-[180px]">{board.name}</span>
-                    </div>
-                    <div className="flex gap-1">
-                        <button onClick={onEdit} className="p-2 hover:bg-white/50 rounded-lg transition-colors"><Icon name="Edit3" size={16}/></button>
-                        <button onClick={onAddEntry} className="p-2 hover:bg-white/50 rounded-lg transition-colors"><Icon name="Plus" size={16}/></button>
-                        <button onClick={onDelete} className="p-2 hover:bg-red-100 text-red-500 rounded-lg transition-colors"><Icon name="Trash2" size={16}/></button>
+        const BoardCard = ({ board, onOpen, onEdit, onDelete, onAddEntry, onEntryClick }) => (
+            <div className="bg-[#ebe4d8] rounded-[3.5rem] border-4 border-[#dcd2c1] shadow-xl flex flex-col h-[600px] overflow-hidden group hover:translate-y-[-6px] transition-all duration-300">
+                <div className="p-6 bg-[#e3dbc9] border-b border-[#dcd2c1] flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer" onClick={onOpen}><div className="w-3 h-3 rounded-full shrink-0 shadow-inner" style={{ backgroundColor: getBoardColor(board.id) }}></div><span className="truncate text-xl font-black uppercase text-[#3e362e]">{board.name}</span></div>
+                    <div className="flex items-center gap-2">
+                        <button onClick={(e) => { e.stopPropagation(); onEdit(); }} className="w-8 h-8 flex items-center justify-center text-[#a89688] hover:text-[#8b5e3c] hover:bg-white rounded-lg transition-all"><Icon name="edit3" size={14}/></button>
+                        <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="w-8 h-8 flex items-center justify-center text-[#a89688] hover:text-red-500 hover:bg-white rounded-lg transition-all"><Icon name="trash2" size={14}/></button>
+                        <button onClick={(e) => { e.stopPropagation(); onAddEntry(); }} className="w-11 h-11 flex items-center justify-center bg-[#8b5e3c] text-white hover:bg-[#724a2e] rounded-2xl shadow-lg transition-all active:scale-90 border-b-2 border-black/10"><Icon name="plus" size={22}/></button>
                     </div>
                 </div>
-                <div className="p-5 flex-1 overflow-y-auto grid grid-cols-2 gap-4 custom-scrollbar">
-                    {board.entries.map((e, i) => (
-                        <div 
-                            key={e.id} 
-                            className={`bg-white p-3 rounded-lg shadow-sm border border-slate-200/50 text-[10px] transform transition-all hover:scale-105 rotate-${i % 2 === 0 ? '1' : '-1'} h-fit relative`}
-                        >
-                            <div className="w-1 h-1 bg-indigo-300 rounded-full absolute top-1 left-1/2 -translate-x-1/2 opacity-30"></div>
-                            {e.image && <img src={e.image} className="w-full h-16 object-cover mb-2 rounded border border-slate-50" />}
-                            <div className="font-bold text-slate-800 truncate mb-1">{e.title}</div>
-                            <div className="text-slate-500 line-clamp-2 leading-tight">{e.content}</div>
+                <div className="p-8 flex-1 overflow-y-auto grid grid-cols-2 gap-6 custom-scrollbar bg-white/10">
+                    {(board.entries || []).map((e, i) => (
+                        <div key={e.id} onClick={(event) => { event.stopPropagation(); onEntryClick(e); }} className={`bg-white p-5 rounded-[2rem] shadow-md border border-[#dcd2c1]/40 text-[11px] transform rotate-${i % 2 === 0 ? '1' : '-2'} h-fit cursor-pointer hover:shadow-2xl transition-all active:scale-95`}>
+                            {e.image && <img src={e.image} className="w-full h-24 object-cover mb-4 rounded-2xl border border-slate-50" alt="" />}
+                            <div className="font-black text-[#3e362e] truncate mb-2 uppercase tracking-tight">{e.title}</div>
+                            <div className="text-[#a89688] line-clamp-3 text-[10px] font-medium leading-relaxed">{e.content}</div>
                         </div>
                     ))}
-                    {board.entries.length === 0 && <div className="col-span-2 text-center py-20 text-slate-400/30 italic text-xs">Keine Einträge</div>}
+                    {(!board.entries || board.entries.length === 0) && <div className="col-span-2 text-center py-40 text-[#a89688]/40 italic text-sm font-black uppercase tracking-[0.3em]">Noch leer</div>}
                 </div>
-                <button onClick={onOpen} className="py-3 bg-black/5 text-[11px] font-bold uppercase tracking-[0.2em] text-slate-600 hover:bg-black/10 transition-all">
-                    Pinnwand öffnen ({board.entries.length})
-                </button>
+                <button onClick={onOpen} className="py-6 bg-black/5 text-[12px] font-black uppercase tracking-widest text-[#3e362e] hover:bg-black/10 transition-colors border-t border-black/5">Pinnwand betreten ({(board.entries || []).length})</button>
             </div>
         );
 
         const EntryCard = ({ entry, onEdit, onDelete }) => (
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden group hover:shadow-xl transition-all relative flex flex-col h-full">
-                <div className="absolute top-2 left-1/2 -translate-x-1/2 w-3 h-3 bg-indigo-500/10 rounded-full z-10"></div>
-                {entry.image && <img src={entry.image} className="w-full h-40 object-cover border-b border-slate-50 transition-transform group-hover:scale-105" />}
-                <div className="p-5 flex-1 flex flex-col">
-                    <h3 className="font-bold text-slate-800 mb-2 text-lg leading-tight">{entry.title}</h3>
-                    <p className="text-sm text-slate-500 line-clamp-4 mb-4 whitespace-pre-wrap flex-1 leading-relaxed">{entry.content}</p>
-                    
-                    {entry.note && (
-                        <div className="text-[10px] bg-slate-50 p-2.5 rounded-xl text-slate-400 italic mb-4 border border-slate-100">
-                            {entry.note}
-                        </div>
-                    )}
-                    
-                    <div className="mt-auto flex justify-between items-center border-t border-slate-50 pt-4">
-                        {entry.link ? (
-                            <a href={entry.link} target="_blank" rel="noopener noreferrer" className="text-[10px] text-indigo-600 font-bold uppercase tracking-wider flex items-center gap-1 hover:underline">
-                                <Icon name="ExternalLink" size={10} /> Link
-                            </a>
-                        ) : <div />}
-                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                            <button onClick={onEdit} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl"><Icon name="Edit3" size={16}/></button>
-                            {onDelete && <button onClick={onDelete} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl"><Icon name="Trash2" size={16}/></button>}
+            <div className="bg-white rounded-[2.5rem] border border-[#dcd2c1]/30 shadow-md overflow-hidden flex flex-col h-full relative cursor-pointer group hover:shadow-2xl transition-all border-b-8 border-[#8b5e3c]/10" onClick={onEdit}>
+                {entry.image && <div className="h-52 overflow-hidden"><img src={entry.image} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-1000" alt="" /></div>}
+                <div className="p-8 flex-1 flex flex-col">
+                    <h3 className="font-black text-[#3e362e] mb-4 text-xl tracking-tight uppercase leading-tight">{entry.title}</h3>
+                    <p className="text-base text-[#a89688] line-clamp-6 mb-8 whitespace-pre-wrap leading-relaxed flex-1">{entry.content}</p>
+                    <div className="mt-auto pt-6 flex justify-between items-center border-t border-slate-50">
+                        {entry.link ? <button onClick={(e) => { e.stopPropagation(); window.open(entry.link, '_blank'); }} className="text-[10px] font-black text-[#8b5e3c] uppercase underline active:text-[#724a2e]">Link öffnen</button> : <div />}
+                        <div className="flex gap-2">
+                            <button onClick={(e) => { e.stopPropagation(); onEdit(); }} className="p-3.5 bg-slate-50 text-[#a89688] hover:text-[#8b5e3c] rounded-2xl transition-all"><Icon name="edit3" size={18}/></button>
+                            {onDelete && <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="p-3.5 bg-slate-50 text-[#a89688] hover:text-red-500 rounded-2xl transition-all"><Icon name="trash2" size={18}/></button>}
                         </div>
                     </div>
                 </div>
@@ -341,13 +355,13 @@
         );
 
         const Modal = ({ title, onClose, children }) => (
-            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
-                <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-xl overflow-hidden animate-fade-in flex flex-col max-h-[90vh]">
-                    <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
-                        <h3 className="font-bold text-2xl text-slate-800 tracking-tight">{title}</h3>
-                        <button onClick={onClose} className="p-2 hover:bg-white rounded-full transition-colors text-slate-400 hover:text-slate-900"><Icon name="X" size={24} /></button>
+            <div className="fixed inset-0 bg-[#2d2824]/90 backdrop-blur-2xl z-50 flex items-center justify-center p-4">
+                <div className="bg-white rounded-[4rem] shadow-2xl w-full max-w-2xl overflow-hidden animate-fade-in flex flex-col max-h-[90vh] border border-white/20">
+                    <div className="px-12 py-10 border-b border-[#dcd2c1]/30 flex justify-between items-center bg-[#fdfcfb] shrink-0">
+                        <h3 className="font-black text-3xl text-[#3e362e] tracking-tighter uppercase">{title}</h3>
+                        <button onClick={onClose} className="p-4 hover:bg-[#dcd2c1]/20 rounded-full transition-all text-[#a89688] hover:text-[#3e362e]"><Icon name="x" size={28} /></button>
                     </div>
-                    <div className="p-8 overflow-y-auto custom-scrollbar flex-1">{children}</div>
+                    <div className="p-12 overflow-y-auto custom-scrollbar flex-1 bg-[#fdfcfb]">{children}</div>
                 </div>
             </div>
         );
@@ -355,101 +369,74 @@
         const BoardForm = ({ initialName, onSubmit }) => {
             const [val, setVal] = useState(initialName || '');
             return (
-                <form onSubmit={e => { e.preventDefault(); if(val.trim()) onSubmit(val); }} className="space-y-6">
-                    <div>
-                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Name der Pinnwand</label>
-                        <input 
-                            autoFocus 
-                            className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 font-bold text-lg transition-all" 
-                            value={val} 
-                            onChange={e => setVal(e.target.value)} 
-                            placeholder="z.B. Ideen, Projekte..." 
-                        />
+                <form onSubmit={e => { e.preventDefault(); if(val.trim()) onSubmit(val); }} className="space-y-12">
+                    <div className="space-y-5">
+                        <label className="text-[11px] font-black uppercase tracking-[0.4em] text-[#a89688] ml-1">Bezeichnung</label>
+                        <input autoFocus className="w-full px-8 py-7 bg-white border-4 border-[#dcd2c1]/30 rounded-[2.5rem] outline-none focus:border-[#8b5e3c] font-bold text-3xl transition-all" value={val} onChange={e => setVal(e.target.value)} placeholder="Titel..." />
                     </div>
-                    <button className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-bold shadow-xl shadow-indigo-100 transition-all active:scale-95 hover:bg-indigo-700 flex items-center justify-center gap-2">
-                        <Icon name="Save" size={20} /> Speichern
-                    </button>
+                    <button className="w-full py-7 bg-[#8b5e3c] text-white rounded-[2.5rem] font-black uppercase tracking-widest text-xl shadow-xl active:scale-95 transition-all">Speichern</button>
                 </form>
             );
         };
 
-        const EntryForm = ({ initialData, onSubmit }) => {
-            const [data, setData] = useState(initialData || { title: '', content: '', note: '', link: '', image: null });
+        const EntryForm = ({ initialData, onSubmit, isProcessing }) => {
+            const [data, setData] = useState(initialData || { title: '', content: '', note: '', link: '', image: null, imageFile: null });
             const fileRef = useRef();
-
+            
             const onFile = e => {
                 const f = e.target.files[0];
                 if (f) {
-                    const r = new FileReader();
-                    r.onload = () => setData({...data, image: r.result});
-                    r.readAsDataURL(f);
+                    setData({...data, imageFile: f, image: URL.createObjectURL(f)});
                 }
             };
-
-            const onPaste = e => {
-                const items = e.clipboardData.items;
+            
+            const onPaste = (e) => {
+                const items = (e.clipboardData || e.originalEvent?.clipboardData)?.items;
+                if (!items) return;
                 for (let i = 0; i < items.length; i++) {
                     if (items[i].type.indexOf('image') !== -1) {
                         const blob = items[i].getAsFile();
-                        const r = new FileReader();
-                        r.onload = (event) => setData({...data, image: event.target.result});
-                        r.readAsDataURL(blob);
+                        setData({...data, imageFile: blob, image: URL.createObjectURL(blob)});
                     }
                 }
             };
 
             return (
-                <form onPaste={onPaste} onSubmit={e => { e.preventDefault(); if(data.title.trim()) onSubmit(data); }} className="space-y-6">
-                    <div className="space-y-4">
-                        <div>
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Titel</label>
-                            <input required className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 font-bold" value={data.title} onChange={e => setData({...data, title: e.target.value})} placeholder="Titel des Eintrags" />
+                <form onPaste={onPaste} onSubmit={e => { e.preventDefault(); if(data.title.trim() && !isProcessing) onSubmit(data); }} className="space-y-10">
+                    <div className="space-y-7">
+                        <input required className="w-full px-8 py-6 bg-white border-4 border-[#dcd2c1]/30 rounded-[2.2rem] outline-none focus:border-[#8b5e3c] font-black text-2xl" value={data.title} onChange={e => setData({...data, title: e.target.value})} placeholder="Überschrift..." />
+                        <textarea className="w-full px-8 py-6 bg-white border-4 border-[#dcd2c1]/30 rounded-[2.2rem] outline-none focus:border-[#8b5e3c] min-h-[220px] text-lg leading-relaxed" value={data.content} onChange={e => setData({...data, content: e.target.value})} placeholder="Deine Gedanken..." />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <input className="w-full px-7 py-5 bg-[#ebe4d8]/30 border-2 border-[#dcd2c1]/50 rounded-[1.5rem] outline-none text-sm font-bold uppercase tracking-widest" value={data.note} onChange={e => setData({...data, note: e.target.value})} placeholder="Notiz" />
+                            <input type="url" className="w-full px-7 py-5 bg-[#ebe4d8]/30 border-2 border-[#dcd2c1]/50 rounded-[1.5rem] outline-none text-sm font-bold" value={data.link} onChange={e => setData({...data, link: e.target.value})} placeholder="Web-Link..." />
                         </div>
-                        <div>
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Inhalt</label>
-                            <textarea className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 min-h-[120px]" value={data.content} onChange={e => setData({...data, content: e.target.value})} placeholder="Deine Notizen..."></textarea>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Notiz</label>
-                                <input className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" value={data.note} onChange={e => setData({...data, note: e.target.value})} placeholder="Tag oder Info" />
+                        <div className="flex gap-8 items-center bg-[#ebe4d8]/20 p-8 rounded-[3rem] border-2 border-dashed border-[#dcd2c1]">
+                            <div onClick={() => !isProcessing && fileRef.current.click()} className="w-32 h-32 bg-white rounded-[2rem] flex items-center justify-center cursor-pointer shrink-0 overflow-hidden text-[#dcd2c1] hover:text-[#8b5e3c] transition-all shadow-md relative group">
+                                {data.image ? <img src={data.image} className="w-full h-full object-cover" alt="" /> : <Icon name="image" size={48} />}
+                                {isProcessing && <div className="absolute inset-0 bg-white/60 flex items-center justify-center"><Icon name="loader" size={24} className="animate-spin text-[#8b5e3c]" /></div>}
                             </div>
-                            <div>
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Link</label>
-                                <input type="url" className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm" value={data.link} onChange={e => setData({...data, link: e.target.value})} placeholder="https://..." />
-                            </div>
-                        </div>
-                        <div>
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Bildanhang</label>
-                            <div className="flex gap-5 items-center">
-                                <div onClick={() => fileRef.current.click()} className="w-24 h-24 border-2 border-dashed border-slate-200 rounded-2xl flex items-center justify-center cursor-pointer hover:bg-indigo-50 hover:border-indigo-300 transition-all shrink-0 overflow-hidden">
-                                    {data.image ? <img src={data.image} className="w-full h-full object-cover" /> : <Icon name="Image" className="text-slate-300" size={32} />}
-                                </div>
-                                <input type="file" ref={fileRef} className="hidden" onChange={onFile} accept="image/*" />
-                                <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 flex-1">
-                                    <p className="text-[11px] text-amber-700 leading-relaxed font-medium">
-                                        Tipp: Bild auswählen oder einfach per <strong>Strg + V</strong> einfügen!
-                                    </p>
-                                </div>
+                            <input type="file" ref={fileRef} className="hidden" onChange={onFile} accept="image/*" />
+                            <div className="flex flex-col">
+                                <p className="text-[12px] text-[#a89688] font-black uppercase tracking-widest leading-relaxed">Bild wählen oder <br/> per <span className="text-[#8b5e3c]">Strg+V</span> einfügen</p>
                             </div>
                         </div>
                     </div>
-                    <button className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-bold transition-all active:scale-95 shadow-xl shadow-indigo-100 hover:bg-indigo-700 flex items-center justify-center gap-2">
-                        <Icon name="Pin" size={20} /> Anheften
+                    <button disabled={isProcessing} className={`w-full py-7 rounded-[2.5rem] font-black uppercase tracking-[0.4em] text-xl shadow-xl transition-all flex items-center justify-center gap-5 border-b-4 border-black/10 ${isProcessing ? 'bg-slate-400 cursor-not-allowed' : 'bg-[#8b5e3c] text-white active:scale-95'}`}>
+                        {isProcessing ? <><Icon name="loader" size={28} className="animate-spin" /> Wird gespeichert...</> : <><Icon name="pin" size={32} /> Anheften</>}
                     </button>
                 </form>
             );
         };
 
-        const DeleteModal = ({ onCancel, onConfirm }) => (
-            <div className="fixed inset-0 bg-slate-900/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
-                <div className="bg-white p-10 rounded-[2.5rem] max-w-sm w-full text-center shadow-2xl animate-fade-in">
-                    <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6"><Icon name="Trash2" size={32}/></div>
-                    <h3 className="font-bold text-2xl mb-2 text-slate-900 tracking-tight">Sicher?</h3>
-                    <p className="text-slate-500 text-sm mb-8 leading-relaxed">Dies kann nicht rückgängig gemacht werden.</p>
-                    <div className="flex gap-3">
-                        <button onClick={onCancel} className="flex-1 py-4 bg-slate-100 rounded-2xl font-bold text-slate-600 hover:bg-slate-200">Nein</button>
-                        <button onClick={onConfirm} className="flex-1 py-4 bg-red-500 rounded-2xl font-bold text-white transition-all active:scale-95 shadow-lg shadow-red-100 hover:bg-red-600">Löschen</button>
+        const DeleteModal = ({ onCancel, onConfirm, type, itemName }) => (
+            <div className="fixed inset-0 bg-[#2d2824]/95 backdrop-blur-3xl z-[100] flex items-center justify-center p-4">
+                <div className="bg-white p-16 rounded-[5rem] max-w-sm w-full text-center shadow-2xl animate-fade-in">
+                    <div className="w-28 h-28 bg-red-50 text-red-500 rounded-[3rem] flex items-center justify-center mx-auto mb-12 shadow-inner"><Icon name="trash2" size={56} /></div>
+                    <h3 className="font-black text-3xl mb-4 tracking-tighter text-[#3e362e] uppercase">{type === 'board' ? 'Pinnwand löschen?' : 'Eintrag löschen?'}</h3>
+                    <p className="text-[#8b5e3c] font-black uppercase text-sm mb-6 leading-tight break-words">"{itemName}"</p>
+                    <div className="flex flex-col gap-5">
+                        <button onClick={onConfirm} className="w-full py-7 bg-red-500 rounded-[2.2rem] font-black uppercase tracking-widest text-white shadow-xl active:scale-95 transition-all">Löschen</button>
+                        <button onClick={onCancel} className="w-full py-7 bg-white border border-[#dcd2c1] rounded-[2.2rem] font-black uppercase tracking-widest text-[#a89688]">Abbrechen</button>
                     </div>
                 </div>
             </div>
