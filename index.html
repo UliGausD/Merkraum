@@ -2,18 +2,15 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Merkraum - Deine Cloud Pinnwand</title>
     
-    <!-- Stealth-Mode: Suchmaschinen daran hindern, diese Seite zu indexieren -->
     <meta name="robots" content="noindex, nofollow">
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    
-    <!-- Supabase SDK -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <style>
@@ -37,7 +34,7 @@
             overflow-x: hidden;
         }
 
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: var(--pinnwand-border); border-radius: 10px; }
         
@@ -48,29 +45,39 @@
         }
 
         button, .cursor-pointer { touch-action: manipulation; }
+
+        .board-card {
+            transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+        }
         
-        .loading-shimmer {
-            background: linear-gradient(90deg, #f0f0f0 25%, #f8f8f8 50%, #f0f0f0 75%);
-            background-size: 200% 100%;
-            animation: shimmer 1.5s infinite;
+        .dragging {
+            opacity: 0.4;
+            transform: scale(0.95);
         }
-        @keyframes shimmer {
-            0% { background-position: 200% 0; }
-            100% { background-position: -200% 0; }
+
+        .drag-over {
+            border-color: var(--accent) !important;
+            background-color: rgba(139, 94, 60, 0.05) !important;
         }
+
+        .drag-handle {
+            cursor: grab;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .drag-handle:active { cursor: grabbing; }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        // --- KONFIGURATION ---
         const SUPABASE_URL = "https://jzqophvooxlzmsqgicly.supabase.co"; 
         const SUPABASE_ANON_KEY = "sb_publishable_Yj3tUq1Yy2Y8Yw2AgeBKbA_DYf5SDRI"; 
-        const BUCKET_NAME = "merkraum-media"; // Dein soeben konfigurierter Bucket
+        const BUCKET_NAME = "merkraum-media"; 
 
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
         const { useState, useEffect, useRef, useCallback } = React;
 
         const BOARD_COLORS = ['#8b5e3c', '#c27803', '#92400e', '#d97706', '#4d7c0f', '#1e40af', '#be123c', '#431407'];
@@ -92,19 +99,29 @@
                 grid: <g><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></g>,
                 search: <g><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /></g>,
                 chevronleft: <path d="M15 18l-6-6 6-6" />,
-                save: <g><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></g>,
                 image: <g><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></g>,
-                loader: <g><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" /></g>
+                loader: <g><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" /></g>,
+                file: <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />,
+                external: <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" />,
+                move: <path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20" />,
+                chevronup: <path d="M18 15l-6-6-6 6" />,
+                chevrondown: <path d="M6 9l6 6 6-6" />,
+                grip: <g><circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/></g>
             };
             const iconName = (name || "").toLowerCase();
             return (
-                <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
                     {icons[iconName] || <circle cx="12" cy="12" r="10" />}
                 </svg>
             );
         };
 
         const generateId = () => Math.random().toString(36).substr(2, 9);
+        const isImage = (url, mimeType) => {
+            if (mimeType && mimeType.startsWith('image/')) return true;
+            if (!url) return false;
+            return /\.(jpg|jpeg|png|webp|avif|gif|svg|heic|heif)$/i.test(url) || url.includes('image');
+        };
 
         const App = () => {
             const [user, setUser] = useState(null);
@@ -120,21 +137,28 @@
             const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
             const [actionError, setActionError] = useState(null);
             const [isProcessing, setIsProcessing] = useState(false);
+            const [draggedBoardId, setDraggedBoardId] = useState(null);
 
             const fetchBoards = useCallback(async () => {
-                const { data, error } = await supabaseClient.from('boards').select('*');
-                if (data) setBoards(data);
-                else if (error) console.error(error.message);
+                try {
+                    const { data, error } = await supabaseClient.from('boards').select('*');
+                    if (data) {
+                        const sorted = [...data].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+                        setBoards(sorted);
+                    }
+                } catch (e) { console.error(e); }
             }, []);
 
             useEffect(() => {
                 const initAuth = async () => {
-                    const { data: { user: currentUser } } = await supabaseClient.auth.getUser();
-                    if (currentUser) setUser(currentUser);
-                    else {
-                        const { data } = await supabaseClient.auth.signInAnonymously();
-                        if (data?.user) setUser(data.user);
-                    }
+                    try {
+                        const { data: { user: currentUser } } = await supabaseClient.auth.getUser();
+                        if (currentUser) setUser(currentUser);
+                        else {
+                            const { data } = await supabaseClient.auth.signInAnonymously();
+                            if (data?.user) setUser(data.user);
+                        }
+                    } catch (e) { setActionError("Verbindung fehlgeschlagen."); }
                 };
                 initAuth();
             }, []);
@@ -148,97 +172,91 @@
                 return () => supabaseClient.removeChannel(channel);
             }, [user, fetchBoards]);
 
-            // Zentrale Upload-Logik für den Storage
-            const uploadToStorage = async (fileOrBase64) => {
-                if (!fileOrBase64) return null;
-                
-                // Falls es bereits eine gespeicherte Supabase-URL ist, nichts tun
-                if (typeof fileOrBase64 === 'string' && fileOrBase64.startsWith('http') && !fileOrBase64.startsWith('data:')) return fileOrBase64;
+            const saveSortOrder = async (updatedBoards) => {
+                try {
+                    const updates = updatedBoards.map((b, i) => 
+                        supabaseClient.from('boards').update({ sort_order: i }).eq('id', b.id)
+                    );
+                    await Promise.all(updates);
+                } catch (e) { setActionError("Sortierung konnte nicht gespeichert werden."); }
+            };
 
-                let blob;
-                if (fileOrBase64 instanceof Blob || fileOrBase64 instanceof File) {
-                    blob = fileOrBase64;
-                } else if (typeof fileOrBase64 === 'string' && fileOrBase64.startsWith('data:')) {
-                    const res = await fetch(fileOrBase64);
-                    blob = await res.blob();
-                } else return null;
+            const handleMoveByButton = async (boardId, direction) => {
+                const idx = boards.findIndex(b => b.id === boardId);
+                const newBoards = [...boards];
+                if (direction === 'up' && idx > 0) {
+                    [newBoards[idx], newBoards[idx-1]] = [newBoards[idx-1], newBoards[idx]];
+                } else if (direction === 'down' && idx < boards.length - 1) {
+                    [newBoards[idx], newBoards[idx+1]] = [newBoards[idx+1], newBoards[idx]];
+                } else return;
+                
+                setBoards(newBoards);
+                await saveSortOrder(newBoards);
+            };
 
-                const fileExt = blob.type.split('/')[1] || 'png';
-                const fileName = `${user.id}/${Date.now()}-${generateId()}.${fileExt}`;
-                
-                const { data, error } = await supabaseClient.storage.from(BUCKET_NAME).upload(fileName, blob);
-                
-                if (error) throw error;
-                const { data: { publicUrl } } = supabaseClient.storage.from(BUCKET_NAME).getPublicUrl(data.path);
-                return publicUrl;
+            const handleDragStart = (id) => setDraggedBoardId(id);
+            const handleDragOver = (e, targetId) => {
+                e.preventDefault();
+                if (!draggedBoardId || draggedBoardId === targetId) return;
+                const newBoards = [...boards];
+                const idxA = newBoards.findIndex(b => b.id === draggedBoardId);
+                const idxB = newBoards.findIndex(b => b.id === targetId);
+                if (idxA !== -1 && idxB !== -1) {
+                    const item = newBoards.splice(idxA, 1)[0];
+                    newBoards.splice(idxB, 0, item);
+                    setBoards(newBoards);
+                }
+            };
+            const handleDragEnd = () => {
+                saveSortOrder(boards);
+                setDraggedBoardId(null);
             };
 
             const addOrUpdateBoard = async (name) => {
-                if (editingBoard) {
-                    await supabaseClient.from('boards').update({ name }).eq('id', editingBoard.id);
-                } else {
-                    await supabaseClient.from('boards').insert([{ name, user_id: user.id, entries: [] }]);
-                }
-                setIsBoardModalOpen(false);
-                setEditingBoard(null);
-                fetchBoards();
-            };
-
-            const deleteBoard = async (id) => {
-                await supabaseClient.from('boards').delete().eq('id', id);
-                if (activeBoardId == id) setActiveBoardId('home');
-                setDeleteConfirm({ show: false, id: null, type: null, boardId: null, name: '' });
-                fetchBoards();
+                if (editingBoard) await supabaseClient.from('boards').update({ name }).eq('id', editingBoard.id);
+                else await supabaseClient.from('boards').insert([{ name, user_id: user.id, entries: [], sort_order: boards.length }]);
+                setIsBoardModalOpen(false); setEditingBoard(null); fetchBoards();
             };
 
             const addOrUpdateEntry = async (entryData) => {
                 setIsProcessing(true);
-                setActionError(null);
                 try {
-                    // 1. Bild in den Storage laden
-                    let finalImageUrl = entryData.image;
-                    if (entryData.imageFile || (typeof entryData.image === 'string' && entryData.image.startsWith('data:'))) {
-                        finalImageUrl = await uploadToStorage(entryData.imageFile || entryData.image);
-                    }
+                    const uploadToStorage = async (fileOrBase64) => {
+                        if (!fileOrBase64) return null;
+                        if (typeof fileOrBase64 === 'string' && fileOrBase64.startsWith('http') && !fileOrBase64.startsWith('data:')) return fileOrBase64;
+                        let blob;
+                        let originalName = 'file';
+                        if (fileOrBase64 instanceof Blob || fileOrBase64 instanceof File) {
+                            blob = fileOrBase64;
+                            originalName = fileOrBase64.name || 'file';
+                        } else if (typeof fileOrBase64 === 'string' && fileOrBase64.startsWith('data:')) {
+                            const res = await fetch(fileOrBase64);
+                            blob = await res.blob();
+                        } else return null;
+                        const fileExt = blob.type.split('/')[1] || originalName.split('.').pop() || 'file';
+                        const fileName = `${user.id}/${Date.now()}-${generateId()}.${fileExt}`;
+                        const { data, error } = await supabaseClient.storage.from(BUCKET_NAME).upload(fileName, blob);
+                        if (error) throw error;
+                        const { data: { publicUrl } } = supabaseClient.storage.from(BUCKET_NAME).getPublicUrl(data.path);
+                        return { url: publicUrl, mimeType: blob.type, fileName: originalName };
+                    };
 
-                    // 2. Datenbank-Eintrag vorbereiten
+                    let fileInfo = { url: entryData.image, mimeType: entryData.mimeType, originalName: entryData.originalName };
+                    if (entryData.imageFile || (typeof entryData.image === 'string' && entryData.image.startsWith('data:'))) {
+                        const uploadResult = await uploadToStorage(entryData.imageFile || entryData.image);
+                        fileInfo = { url: uploadResult.url, mimeType: uploadResult.mimeType, originalName: uploadResult.fileName };
+                    }
                     const targetId = entryTargetBoardId || activeBoardId;
                     const board = boards.find(b => b.id == targetId);
                     if (!board) return;
-                    
-                    const entryToSave = { ...entryData, image: finalImageUrl };
-                    delete entryToSave.imageFile; // Temporäres File-Objekt entfernen
-
+                    const entryToSave = { ...entryData, image: fileInfo.url, mimeType: fileInfo.mimeType, originalName: fileInfo.originalName };
+                    delete entryToSave.imageFile;
                     let newEntries = [...(board.entries || [])];
-                    if (editingEntry) {
-                        newEntries = newEntries.map(e => e.id === editingEntry.id ? { ...entryToSave, id: e.id } : e);
-                    } else {
-                        newEntries.push({ ...entryToSave, id: generateId(), createdAt: new Date().toISOString() });
-                    }
-
-                    // 3. Datenbank aktualisieren
-                    const { error } = await supabaseClient.from('boards').update({ entries: newEntries }).eq('id', targetId);
-                    if (error) throw error;
-
-                    setIsEntryModalOpen(false);
-                    setEditingEntry(null);
-                    setEntryTargetBoardId(null);
-                    fetchBoards();
-                } catch (err) {
-                    console.error(err);
-                    setActionError("Fehler beim Speichern. Prüfe deine Storage-Policies!");
-                } finally {
-                    setIsProcessing(false);
-                }
-            };
-
-            const deleteEntry = async (entryId, boardId) => {
-                const board = boards.find(b => b.id == boardId);
-                if (!board) return;
-                const newEntries = (board.entries || []).filter(e => e.id !== entryId);
-                await supabaseClient.from('boards').update({ entries: newEntries }).eq('id', boardId);
-                setDeleteConfirm({ show: false, id: null, type: null, boardId: null, name: '' });
-                fetchBoards();
+                    if (editingEntry) newEntries = newEntries.map(e => e.id === editingEntry.id ? { ...entryToSave, id: e.id } : e);
+                    else newEntries.push({ ...entryToSave, id: generateId(), createdAt: new Date().toISOString() });
+                    await supabaseClient.from('boards').update({ entries: newEntries }).eq('id', targetId);
+                    setIsEntryModalOpen(false); setEditingEntry(null); fetchBoards();
+                } catch (err) { setActionError("Fehler beim Speichern."); } finally { setIsProcessing(false); }
             };
 
             const activeBoard = boards.find(b => b.id == activeBoardId);
@@ -248,29 +266,30 @@
                     {isMobileMenuOpen && <div className="fixed inset-0 bg-black/40 z-30 lg:hidden" onClick={() => setIsMobileMenuOpen(false)} />}
                     
                     {actionError && (
-                        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] bg-red-800 text-white px-8 py-5 rounded-3xl shadow-2xl flex items-center gap-4 animate-fade-in border border-white/10">
+                        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] bg-red-900 text-white px-8 py-5 rounded-3xl shadow-2xl flex items-center gap-4 animate-fade-in border border-white/10 max-w-[90vw]">
                             <span className="text-sm font-bold">{actionError}</span>
                             <button onClick={() => setActionError(null)} className="ml-4 hover:bg-white/10 p-2 rounded-full"><Icon name="x" size={18}/></button>
                         </div>
                     )}
 
-                    {/* Sidebar */}
                     <aside className={`w-72 bg-[#2d2824] text-slate-300 flex flex-col fixed h-full border-r border-[#3e362e] z-40 transition-transform duration-300 lg:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
                         <div className="p-8 flex items-center justify-between text-white font-bold text-xl">
-                            <div className="flex items-center gap-3 font-black tracking-tighter italic">
-                                <Icon name="board" className="text-amber-500" size={28} /> MERKRAUM
-                            </div>
-                            <button onClick={() => setIsMobileMenuOpen(false)} className="lg:hidden p-1 text-slate-500"><Icon name="x" size={20} /></button>
+                            <div className="flex items-center gap-3 font-black italic"><Icon name="board" className="text-amber-500" size={28} /> MERKRAUM</div>
                         </div>
                         <nav className="flex-1 px-4 space-y-1.5 overflow-y-auto custom-scrollbar">
                             <button onClick={() => { setActiveBoardId('home'); setIsMobileMenuOpen(false); }} className={`w-full text-left px-5 py-3.5 rounded-2xl text-sm font-bold flex items-center gap-3 transition-all ${activeBoardId === 'home' ? 'bg-[#8b5e3c] text-white shadow-lg' : 'hover:bg-[#3e362e]'}`}><Icon name="grid" size={18} /> Alle Pinnwände</button>
-                            <div className="pt-10 pb-3 px-5 text-[11px] font-black text-slate-500 uppercase tracking-widest">Deine Sammlungen</div>
                             {boards.map(board => (
                                 <button key={board.id} onClick={() => { setActiveBoardId(board.id); setIsMobileMenuOpen(false); }} className={`w-full text-left px-5 py-3 rounded-xl text-sm truncate transition-all flex items-center gap-3 ${activeBoardId == board.id ? 'bg-[#3e362e] text-amber-200 font-bold' : 'hover:bg-[#3e362e]/50'}`}><div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: getBoardColor(board.id) }}></div>{board.name}</button>
                             ))}
                         </nav>
                         <div className="p-6 border-t border-[#3e362e]">
-                            <button onClick={() => { setEditingBoard(null); setIsBoardModalOpen(true); }} className="w-full py-4 bg-[#3e362e] rounded-2xl text-sm font-black uppercase text-amber-100 border border-[#4a423a] hover:bg-[#4a423a] transition-all"><Icon name="plus" size={18} /> Neue Pinnwand</button>
+                            <button 
+                                onClick={() => { setEditingBoard(null); setIsBoardModalOpen(true); }} 
+                                className="group w-full py-4 bg-[#8b5e3c] hover:bg-[#724a2e] rounded-2xl text-xs font-black uppercase tracking-widest text-white shadow-lg transition-all flex items-center justify-center gap-3 active:scale-95 border-b-4 border-black/20"
+                            >
+                                <Icon name="plus" size={16} />
+                                <span>Neue Pinnwand</span>
+                            </button>
                         </div>
                     </aside>
 
@@ -278,10 +297,10 @@
                         <div className="max-w-7xl mx-auto">
                             <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
                                 <div className="flex items-center gap-4 flex-1">
-                                    <button onClick={() => setIsMobileMenuOpen(true)} className="lg:hidden p-4 bg-white border border-[#dcd2c1] rounded-2xl shadow-sm text-[#3e362e]"><Icon name="menu" size={24} /></button>
-                                    <div className="relative flex-1 md:max-w-md group">
-                                        <Icon name="search" className="absolute left-5 top-1/2 -translate-y-1/2 text-[#dcd2c1] group-focus-within:text-[#8b5e3c]" size={20} />
-                                        <input type="text" placeholder="Gedanken durchsuchen..." className="w-full pl-14 pr-6 py-4 bg-white border border-[#dcd2c1] rounded-3xl shadow-sm outline-none focus:border-[#8b5e3c]" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+                                    <button onClick={() => setIsMobileMenuOpen(true)} className="lg:hidden p-4 bg-white border border-[#dcd2c1] rounded-2xl shadow-sm"><Icon name="menu" size={24} /></button>
+                                    <div className="relative flex-1 md:max-w-md">
+                                        <Icon name="search" className="absolute left-5 top-1/2 -translate-y-1/2 text-[#dcd2c1]" size={20} />
+                                        <input type="text" placeholder="Gedanken durchsuchen..." className="w-full pl-14 pr-6 py-4 bg-white border border-[#dcd2c1] rounded-3xl outline-none focus:border-[#8b5e3c]" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
                                     </div>
                                 </div>
                                 {activeBoardId !== 'home' && !searchQuery && (
@@ -290,80 +309,162 @@
                             </div>
 
                             {activeBoardId === 'home' && !searchQuery ? (
-                                <div className="animate-fade-in grid grid-cols-1 md:grid-cols-2 gap-10">
-                                    {boards.map(b => <BoardCard key={b.id} board={b} onOpen={() => setActiveBoardId(b.id)} onEdit={() => { setEditingBoard(b); setIsBoardModalOpen(true); }} onDelete={() => setDeleteConfirm({ show: true, type: 'board', id: b.id, name: b.name })} onAddEntry={() => { setEntryTargetBoardId(b.id); setIsEntryModalOpen(true); }} onEntryClick={(e) => { setEntryTargetBoardId(b.id); setEditingEntry(e); setIsEntryModalOpen(true); }} />)}
-                                    <div onClick={() => { setEditingBoard(null); setIsBoardModalOpen(true); }} className="py-32 flex flex-col items-center justify-center border-4 border-dashed border-[#dcd2c1] rounded-[4rem] bg-white/40 cursor-pointer hover:bg-white/70 transition-all group"><div className="w-20 h-20 bg-white rounded-3xl shadow-md flex items-center justify-center mb-6 group-hover:scale-110 transition-transform"><Icon name="plus" size={40} className="text-[#8b5e3c]" /></div><p className="text-[#a89688] font-black uppercase tracking-widest text-xs">Pinnwand erstellen</p></div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-10 pb-24">
+                                    {boards.map((b, idx) => (
+                                        <BoardCard 
+                                            key={b.id} 
+                                            board={b} 
+                                            isDragging={draggedBoardId === b.id}
+                                            onDragStart={() => handleDragStart(b.id)}
+                                            onDragOver={(e) => handleDragOver(e, b.id)}
+                                            onDragEnd={handleDragEnd}
+                                            onMove={(dir) => handleMoveByButton(b.id, dir)}
+                                            canMoveUp={idx > 0}
+                                            canMoveDown={idx < boards.length - 1}
+                                            onOpen={() => setActiveBoardId(b.id)} 
+                                            onEdit={() => { setEditingBoard(b); setIsBoardModalOpen(true); }} 
+                                            onDelete={() => setDeleteConfirm({ show: true, type: 'board', id: b.id, name: b.name })} 
+                                            onAddEntry={() => { setEntryTargetBoardId(b.id); setIsEntryModalOpen(true); }} 
+                                            onEntryClick={(e) => { setEntryTargetBoardId(b.id); setEditingEntry(e); setIsEntryModalOpen(true); }} 
+                                        />
+                                    ))}
+                                    <div onClick={() => { setEditingBoard(null); setIsBoardModalOpen(true); }} className="py-32 flex flex-col items-center justify-center border-4 border-dashed border-[#dcd2c1] rounded-[4rem] bg-white/40 cursor-pointer hover:bg-white/70 group transition-all"><Icon name="plus" size={40} className="text-[#8b5e3c] mb-4 group-hover:scale-110 transition-transform" /><p className="text-[#a89688] font-black uppercase text-xs">Pinnwand erstellen</p></div>
                                 </div>
                             ) : (
                                 <div className="animate-fade-in">
-                                    <button onClick={() => setActiveBoardId('home')} className="flex items-center gap-2 text-[#a89688] hover:text-[#8b5e3c] text-xs mb-5 font-black uppercase tracking-widest transition-colors"><Icon name="chevronleft" size={14} /> Alle Pinnwände</button>
-                                    <div className="flex items-center gap-5 mb-12 min-w-0">
-                                        <h2 className="text-5xl font-black text-[#3e362e] break-words tracking-tighter uppercase leading-none">{activeBoard?.name}</h2>
+                                    <button onClick={() => setActiveBoardId('home')} className="flex items-center gap-2 text-[#a89688] hover:text-[#8b5e3c] text-xs mb-5 font-black uppercase transition-colors"><Icon name="chevronleft" size={14} /> Alle Pinnwände</button>
+                                    <div className="flex items-center gap-5 mb-12">
+                                        <h2 className="text-5xl font-black text-[#3e362e] break-words uppercase tracking-tighter leading-none">{activeBoard?.name}</h2>
                                         <button onClick={() => { setEditingBoard(activeBoard); setIsBoardModalOpen(true); }} className="p-3.5 bg-white shadow-sm border border-[#dcd2c1] rounded-2xl text-[#dcd2c1] hover:text-[#8b5e3c] transition-all"><Icon name="edit3" size={26} /></button>
                                     </div>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
-                                        {(activeBoard?.entries || []).map(e => <EntryCard key={e.id} entry={e} onEdit={() => { setEntryTargetBoardId(activeBoardId); setEditingEntry(e); setIsEntryModalOpen(true); }} onDelete={() => setDeleteConfirm({ show: true, type: 'entry', id: e.id, boardId: activeBoardId, name: e.title })} />)}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 pb-20">
+                                        {(activeBoard?.entries || []).map(e => (
+                                            <EntryCard key={e.id} entry={e} onEdit={() => { setEntryTargetBoardId(activeBoardId); setEditingEntry(e); setIsEntryModalOpen(true); }} onDelete={() => setDeleteConfirm({ show: true, type: 'entry', id: e.id, boardId: activeBoardId, name: e.title })} />
+                                        ))}
                                     </div>
                                 </div>
                             )}
                         </div>
                     </main>
 
-                    {/* Modals */}
-                    {isBoardModalOpen && <Modal title={editingBoard ? "Umbenennen" : "Neu anlegen"} onClose={() => { setIsBoardModalOpen(false); setEditingBoard(null); }}><BoardForm initialName={editingBoard?.name} onSubmit={addOrUpdateBoard} /></Modal>}
-                    {isEntryModalOpen && <Modal title="Gedanke" onClose={() => { setIsEntryModalOpen(false); setEditingEntry(null); }}><EntryForm initialData={editingEntry} onSubmit={addOrUpdateEntry} isProcessing={isProcessing} /></Modal>}
-                    {deleteConfirm.show && <DeleteModal type={deleteConfirm.type} itemName={deleteConfirm.name} onCancel={() => setDeleteConfirm({ show: false, id: null, type: null, boardId: null, name: '' })} onConfirm={() => deleteConfirm.type === 'board' ? deleteBoard(deleteConfirm.id) : deleteEntry(deleteConfirm.id, deleteConfirm.boardId)} />}
+                    {isBoardModalOpen && <Modal title={editingBoard ? "Umbenennen" : "Neu anlegen"} onClose={() => setIsBoardModalOpen(false)}><BoardForm initialName={editingBoard?.name} onSubmit={addOrUpdateBoard} /></Modal>}
+                    {isEntryModalOpen && <Modal title="Gedanke" onClose={() => setIsEntryModalOpen(false)}><EntryForm initialData={editingEntry} onSubmit={addOrUpdateEntry} isProcessing={isProcessing} /></Modal>}
+                    {deleteConfirm.show && <DeleteModal type={deleteConfirm.type} itemName={deleteConfirm.name} onCancel={() => setDeleteConfirm({ show: false, id: null, type: null, boardId: null, name: '' })} onConfirm={() => deleteConfirm.type === 'board' ? (async () => { await supabaseClient.from('boards').delete().eq('id', deleteConfirm.id); fetchBoards(); setDeleteConfirm({show:false}); })() : (async () => { const b = boards.find(bd => bd.id === deleteConfirm.boardId); const updated = b.entries.filter(e => e.id !== deleteConfirm.id); await supabaseClient.from('boards').update({entries: updated}).eq('id', b.id); fetchBoards(); setDeleteConfirm({show:false}); })()} />}
                 </div>
             );
         };
 
-        const BoardCard = ({ board, onOpen, onEdit, onDelete, onAddEntry, onEntryClick }) => (
-            <div className="bg-[#ebe4d8] rounded-[3.5rem] border-4 border-[#dcd2c1] shadow-xl flex flex-col h-[600px] overflow-hidden group hover:translate-y-[-6px] transition-all duration-300">
-                <div className="p-6 bg-[#e3dbc9] border-b border-[#dcd2c1] flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer" onClick={onOpen}><div className="w-3 h-3 rounded-full shrink-0 shadow-inner" style={{ backgroundColor: getBoardColor(board.id) }}></div><span className="truncate text-xl font-black uppercase text-[#3e362e]">{board.name}</span></div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={(e) => { e.stopPropagation(); onEdit(); }} className="w-8 h-8 flex items-center justify-center text-[#a89688] hover:text-[#8b5e3c] hover:bg-white rounded-lg transition-all"><Icon name="edit3" size={14}/></button>
-                        <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="w-8 h-8 flex items-center justify-center text-[#a89688] hover:text-red-500 hover:bg-white rounded-lg transition-all"><Icon name="trash2" size={14}/></button>
-                        <button onClick={(e) => { e.stopPropagation(); onAddEntry(); }} className="w-11 h-11 flex items-center justify-center bg-[#8b5e3c] text-white hover:bg-[#724a2e] rounded-2xl shadow-lg transition-all active:scale-90 border-b-2 border-black/10"><Icon name="plus" size={22}/></button>
-                    </div>
-                </div>
-                <div className="p-8 flex-1 overflow-y-auto grid grid-cols-2 gap-6 custom-scrollbar bg-white/10">
-                    {(board.entries || []).map((e, i) => (
-                        <div key={e.id} onClick={(event) => { event.stopPropagation(); onEntryClick(e); }} className={`bg-white p-5 rounded-[2rem] shadow-md border border-[#dcd2c1]/40 text-[11px] transform rotate-${i % 2 === 0 ? '1' : '-2'} h-fit cursor-pointer hover:shadow-2xl transition-all active:scale-95`}>
-                            {e.image && <img src={e.image} className="w-full h-24 object-cover mb-4 rounded-2xl border border-slate-50" alt="" />}
-                            <div className="font-black text-[#3e362e] truncate mb-2 uppercase tracking-tight">{e.title}</div>
-                            <div className="text-[#a89688] line-clamp-3 text-[10px] font-medium leading-relaxed">{e.content}</div>
+        const BoardCard = ({ board, isDragging, onDragStart, onDragOver, onDragEnd, onMove, canMoveUp, canMoveDown, onOpen, onEdit, onDelete, onAddEntry, onEntryClick }) => {
+            return (
+                <div 
+                    draggable="true"
+                    onDragStart={onDragStart}
+                    onDragOver={onDragOver}
+                    onDragEnd={onDragEnd}
+                    className={`board-card bg-[#ebe4d8] rounded-[3.5rem] border-4 border-[#dcd2c1] shadow-xl flex flex-col h-[600px] overflow-hidden group ${isDragging ? 'dragging' : 'hover:translate-y-[-6px]'}`}
+                >
+                    <div className="p-3 md:p-4 bg-[#e3dbc9] border-b border-[#dcd2c1] flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <div className="flex flex-col items-center bg-black/5 p-1 rounded-xl shrink-0">
+                                <div className="drag-handle text-[#a89688] p-1 mb-1 hover:text-[#8b5e3c]" title="Ziehen">
+                                    <Icon name="move" size={14} />
+                                </div>
+                                <div className="flex flex-col gap-0.5 border-t border-black/5 pt-1">
+                                    <button disabled={!canMoveUp} onClick={() => onMove('up')} className={`p-1 rounded transition-colors ${canMoveUp ? 'text-[#8b5e3c] bg-white/40 shadow-sm' : 'text-[#a89688] opacity-10 cursor-not-allowed'}`}><Icon name="chevronup" size={14}/></button>
+                                    <button disabled={!canMoveDown} onClick={() => onMove('down')} className={`p-1 rounded transition-colors ${canMoveDown ? 'text-[#8b5e3c] bg-white/40 shadow-sm' : 'text-[#a89688] opacity-10 cursor-not-allowed'}`}><Icon name="chevrondown" size={14}/></button>
+                                </div>
+                            </div>
+                            
+                            <div className="flex items-center gap-2 overflow-hidden ml-1">
+                                <div className="w-2.5 h-2.5 rounded-full shrink-0 shadow-inner" style={{ backgroundColor: getBoardColor(board.id) }}></div>
+                                <span className="truncate text-base md:text-lg font-black uppercase text-[#3e362e] cursor-pointer" onClick={onOpen}>{board.name}</span>
+                            </div>
                         </div>
-                    ))}
-                    {(!board.entries || board.entries.length === 0) && <div className="col-span-2 text-center py-40 text-[#a89688]/40 italic text-sm font-black uppercase tracking-[0.3em]">Noch leer</div>}
-                </div>
-                <button onClick={onOpen} className="py-6 bg-black/5 text-[12px] font-black uppercase tracking-widest text-[#3e362e] hover:bg-black/10 transition-colors border-t border-black/5">Pinnwand betreten ({(board.entries || []).length})</button>
-            </div>
-        );
 
-        const EntryCard = ({ entry, onEdit, onDelete }) => (
-            <div className="bg-white rounded-[2.5rem] border border-[#dcd2c1]/30 shadow-md overflow-hidden flex flex-col h-full relative cursor-pointer group hover:shadow-2xl transition-all border-b-8 border-[#8b5e3c]/10" onClick={onEdit}>
-                {entry.image && <div className="h-52 overflow-hidden"><img src={entry.image} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-1000" alt="" /></div>}
-                <div className="p-8 flex-1 flex flex-col">
-                    <h3 className="font-black text-[#3e362e] mb-4 text-xl tracking-tight uppercase leading-tight">{entry.title}</h3>
-                    <p className="text-base text-[#a89688] line-clamp-6 mb-8 whitespace-pre-wrap leading-relaxed flex-1">{entry.content}</p>
-                    <div className="mt-auto pt-6 flex justify-between items-center border-t border-slate-50">
-                        {entry.link ? <button onClick={(e) => { e.stopPropagation(); window.open(entry.link, '_blank'); }} className="text-[10px] font-black text-[#8b5e3c] uppercase underline active:text-[#724a2e]">Link öffnen</button> : <div />}
-                        <div className="flex gap-2">
-                            <button onClick={(e) => { e.stopPropagation(); onEdit(); }} className="p-3.5 bg-slate-50 text-[#a89688] hover:text-[#8b5e3c] rounded-2xl transition-all"><Icon name="edit3" size={18}/></button>
-                            {onDelete && <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="p-3.5 bg-slate-50 text-[#a89688] hover:text-red-500 rounded-2xl transition-all"><Icon name="trash2" size={18}/></button>}
+                        <div className="flex items-center gap-1 shrink-0">
+                            <button onClick={onEdit} className="p-2 text-[#a89688] hover:text-[#8b5e3c] hover:bg-white rounded-lg transition-all"><Icon name="edit3" size={16}/></button>
+                            <button onClick={onDelete} className="p-2 text-[#a89688] hover:text-red-500 hover:bg-white rounded-lg transition-all"><Icon name="trash2" size={16}/></button>
+                            <button onClick={onAddEntry} className="w-8 h-8 md:w-10 md:h-10 flex items-center justify-center bg-[#8b5e3c] text-white hover:bg-[#724a2e] rounded-xl shadow-lg border-b-2 border-black/10 active:scale-90 transition-all"><Icon name="plus" size={18}/></button>
+                        </div>
+                    </div>
+
+                    <div className="p-6 flex-1 overflow-y-auto grid grid-cols-2 gap-4 custom-scrollbar bg-white/10" onClick={onOpen}>
+                        {(board.entries || []).map((e, i) => (
+                            <div key={e.id} onClick={(event) => { event.stopPropagation(); onEntryClick(e); }} className={`bg-white p-4 rounded-[1.5rem] shadow-sm border border-[#dcd2c1]/40 text-[10px] transform rotate-${i % 2 === 0 ? '1' : '-1'} h-fit cursor-pointer hover:shadow-md transition-all active:scale-95`}>
+                                {e.image && isImage(e.image, e.mimeType) ? (
+                                    <img src={e.image} className="w-full h-20 object-cover mb-3 rounded-xl border border-slate-50" />
+                                ) : e.image ? (
+                                    <div className="w-full h-20 mb-3 rounded-xl file-preview-gradient flex items-center justify-center text-[#a89688]"><Icon name="file" size={24} /></div>
+                                ) : null}
+                                <div className="font-black text-[#3e362e] truncate uppercase tracking-tight">{e.title}</div>
+                            </div>
+                        ))}
+                    </div>
+                    <button onClick={onOpen} className="py-5 bg-black/5 text-[11px] font-black uppercase text-[#3e362e] border-t border-black/5 transition-colors hover:bg-black/10 tracking-widest">Öffnen ({(board.entries || []).length})</button>
+                </div>
+            );
+        };
+
+        const EntryCard = ({ entry, onEdit, onDelete }) => {
+            const isImg = isImage(entry.image, entry.mimeType);
+            return (
+                <div className="bg-white rounded-[2.5rem] border border-[#dcd2c1]/30 shadow-md overflow-hidden flex flex-col h-full relative cursor-pointer group hover:shadow-2xl transition-all border-b-8 border-[#8b5e3c]/10" onClick={onEdit}>
+                    {entry.image && isImg && (
+                        <div className="h-52 overflow-hidden"><img src={entry.image} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-1000" /></div>
+                    )}
+                    {entry.image && !isImg && (
+                        <div className="h-52 file-preview-gradient flex flex-col items-center justify-center p-8 text-center">
+                            <Icon name="file" size={64} className="text-[#a89688] mb-4" />
+                            <span className="text-[10px] font-black uppercase text-[#a89688] truncate w-full px-2">{entry.originalName || 'Datei'}</span>
+                        </div>
+                    )}
+                    <div className="p-8 flex-1 flex flex-col">
+                        <h3 className="font-black text-[#3e362e] mb-4 text-xl tracking-tight uppercase leading-tight">{entry.title}</h3>
+                        <p className="text-base text-[#a89688] line-clamp-6 mb-8 whitespace-pre-wrap leading-relaxed flex-1">{entry.content}</p>
+                        <div className="mt-auto pt-6 flex justify-between items-center border-t border-slate-50 gap-2">
+                            <div className="flex gap-2 shrink-0">
+                                {entry.link && (
+                                    <button 
+                                        onClick={(e) => { 
+                                            e.stopPropagation(); 
+                                            window.open(entry.link, '_blank'); 
+                                        }} 
+                                        className="px-4 py-2 bg-amber-50 text-[#8b5e3c] rounded-xl hover:bg-[#8b5e3c] hover:text-white transition-all flex items-center gap-2 border border-[#8b5e3c]/20 group/link"
+                                        title="Link öffnen"
+                                    >
+                                        <Icon name="external" size={16}/>
+                                        <span className="text-[10px] font-black uppercase">Link</span>
+                                    </button>
+                                )}
+                                {entry.image && !isImg && (
+                                    <button 
+                                        onClick={(e) => { 
+                                            e.stopPropagation(); 
+                                            window.open(entry.image, '_blank'); 
+                                        }} 
+                                        className="p-3 bg-slate-50 text-[#8b5e3c] rounded-xl hover:bg-amber-50 transition-colors"
+                                        title="Datei öffnen"
+                                    >
+                                        <Icon name="file" size={18}/>
+                                    </button>
+                                )}
+                            </div>
+                            <div className="flex gap-2">
+                                <button onClick={(e) => { e.stopPropagation(); onEdit(); }} className="p-3 bg-slate-50 text-[#a89688] hover:text-[#8b5e3c] rounded-xl transition-all"><Icon name="edit3" size={18}/></button>
+                                {onDelete && <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="p-3 bg-slate-50 text-[#a89688] hover:text-red-500 rounded-xl transition-all"><Icon name="trash2" size={18}/></button>}
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
-        );
+            );
+        };
 
         const Modal = ({ title, onClose, children }) => (
             <div className="fixed inset-0 bg-[#2d2824]/90 backdrop-blur-2xl z-50 flex items-center justify-center p-4">
                 <div className="bg-white rounded-[4rem] shadow-2xl w-full max-w-2xl overflow-hidden animate-fade-in flex flex-col max-h-[90vh] border border-white/20">
                     <div className="px-12 py-10 border-b border-[#dcd2c1]/30 flex justify-between items-center bg-[#fdfcfb] shrink-0">
                         <h3 className="font-black text-3xl text-[#3e362e] tracking-tighter uppercase">{title}</h3>
-                        <button onClick={onClose} className="p-4 hover:bg-[#dcd2c1]/20 rounded-full transition-all text-[#a89688] hover:text-[#3e362e]"><Icon name="x" size={28} /></button>
+                        <button onClick={onClose} className="p-4 hover:bg-[#dcd2c1]/20 rounded-full text-[#a89688] hover:text-[#3e362e] transition-all"><Icon name="x" size={28} /></button>
                     </div>
                     <div className="p-12 overflow-y-auto custom-scrollbar flex-1 bg-[#fdfcfb]">{children}</div>
                 </div>
@@ -376,7 +477,7 @@
                 <form onSubmit={e => { e.preventDefault(); if(val.trim()) onSubmit(val); }} className="space-y-12">
                     <div className="space-y-5">
                         <label className="text-[11px] font-black uppercase tracking-[0.4em] text-[#a89688] ml-1">Bezeichnung</label>
-                        <input autoFocus className="w-full px-8 py-7 bg-white border-4 border-[#dcd2c1]/30 rounded-[2.5rem] outline-none focus:border-[#8b5e3c] font-bold text-3xl transition-all" value={val} onChange={e => setVal(e.target.value)} placeholder="Titel..." />
+                        <input autoFocus className="w-full px-8 py-7 bg-white border-4 border-[#dcd2c1]/30 rounded-[2.5rem] outline-none focus:border-[#8b5e3c] font-bold text-3xl transition-all shadow-inner" value={val} onChange={e => setVal(e.target.value)} placeholder="Titel..." />
                     </div>
                     <button className="w-full py-7 bg-[#8b5e3c] text-white rounded-[2.5rem] font-black uppercase tracking-widest text-xl shadow-xl active:scale-95 transition-all">Speichern</button>
                 </form>
@@ -384,59 +485,64 @@
         };
 
         const EntryForm = ({ initialData, onSubmit, isProcessing }) => {
-            const [data, setData] = useState(initialData || { title: '', content: '', note: '', link: '', image: null, imageFile: null });
+            const [data, setData] = useState(initialData || { title: '', content: '', link: '', image: null, imageFile: null, mimeType: '', originalName: '' });
             const fileRef = useRef();
-            
             const onFile = e => {
                 const f = e.target.files[0];
-                if (f) {
-                    setData({...data, imageFile: f, image: URL.createObjectURL(f)});
-                }
+                if (f) setData({ ...data, imageFile: f, image: f.type.startsWith('image/') ? URL.createObjectURL(f) : null, mimeType: f.type, originalName: f.name });
             };
-            
             const onPaste = (e) => {
                 const items = (e.clipboardData || e.originalEvent?.clipboardData)?.items;
                 if (!items) return;
                 for (let i = 0; i < items.length; i++) {
                     if (items[i].type.indexOf('image') !== -1) {
                         const blob = items[i].getAsFile();
-                        setData({...data, imageFile: blob, image: URL.createObjectURL(blob)});
+                        setData({ ...data, imageFile: blob, image: URL.createObjectURL(blob), mimeType: blob.type, originalName: 'Eingefügtes Bild.png' });
                     }
                 }
             };
-
+            const isImg = isImage(data.image, data.mimeType);
             return (
                 <form onPaste={onPaste} onSubmit={e => { e.preventDefault(); if(data.title.trim() && !isProcessing) onSubmit(data); }} className="space-y-10">
                     <div className="space-y-7">
-                        <input required className="w-full px-8 py-6 bg-white border-4 border-[#dcd2c1]/30 rounded-[2.2rem] outline-none focus:border-[#8b5e3c] font-black text-2xl" value={data.title} onChange={e => setData({...data, title: e.target.value})} placeholder="Überschrift..." />
-                        <textarea className="w-full px-8 py-6 bg-white border-4 border-[#dcd2c1]/30 rounded-[2.2rem] outline-none focus:border-[#8b5e3c] min-h-[220px] text-lg leading-relaxed" value={data.content} onChange={e => setData({...data, content: e.target.value})} placeholder="Deine Gedanken..." />
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <input className="w-full px-7 py-5 bg-[#ebe4d8]/30 border-2 border-[#dcd2c1]/50 rounded-[1.5rem] outline-none text-sm font-bold uppercase tracking-widest" value={data.note} onChange={e => setData({...data, note: e.target.value})} placeholder="Notiz" />
-                            <input type="url" className="w-full px-7 py-5 bg-[#ebe4d8]/30 border-2 border-[#dcd2c1]/50 rounded-[1.5rem] outline-none text-sm font-bold" value={data.link} onChange={e => setData({...data, link: e.target.value})} placeholder="Web-Link..." />
+                        <input required className="w-full px-8 py-6 bg-white border-4 border-[#dcd2c1]/30 rounded-[2.2rem] outline-none focus:border-[#8b5e3c] font-black text-2xl shadow-inner" value={data.title} onChange={e => setData({...data, title: e.target.value})} placeholder="Überschrift..." />
+                        <textarea className="w-full px-8 py-6 bg-white border-4 border-[#dcd2c1]/30 rounded-[2.2rem] outline-none focus:border-[#8b5e3c] min-h-[220px] text-lg leading-relaxed shadow-inner" value={data.content} onChange={e => setData({...data, content: e.target.value})} placeholder="Deine Gedanken..." />
+                        <div className="flex items-center gap-3">
+                            <input type="url" className="flex-1 px-7 py-5 bg-[#ebe4d8]/30 border-2 border-[#dcd2c1]/50 rounded-[1.5rem] outline-none text-sm font-bold focus:border-[#8b5e3c]" value={data.link} onChange={e => setData({...data, link: e.target.value})} placeholder="Web-Link (z.B. https://...)" />
+                            {data.link && (
+                                <button 
+                                    type="button"
+                                    onClick={() => window.open(data.link, '_blank')}
+                                    className="p-5 bg-amber-50 text-[#8b5e3c] rounded-[1.5rem] hover:bg-[#8b5e3c] hover:text-white transition-all border border-[#8b5e3c]/20"
+                                    title="Link jetzt besuchen"
+                                >
+                                    <Icon name="external" size={20} />
+                                </button>
+                            )}
                         </div>
                         <div className="flex gap-8 items-center bg-[#ebe4d8]/20 p-8 rounded-[3rem] border-2 border-dashed border-[#dcd2c1]">
-                            <div onClick={() => !isProcessing && fileRef.current.click()} className="w-32 h-32 bg-white rounded-[2rem] flex items-center justify-center cursor-pointer shrink-0 overflow-hidden text-[#dcd2c1] hover:text-[#8b5e3c] transition-all shadow-md relative group">
-                                {data.image ? <img src={data.image} className="w-full h-full object-cover" alt="" /> : <Icon name="image" size={48} />}
+                            <div onClick={() => !isProcessing && fileRef.current.click()} className="w-32 h-32 bg-white rounded-[2rem] flex items-center justify-center cursor-pointer shrink-0 overflow-hidden text-[#dcd2c1] hover:text-[#8b5e3c] transition-all shadow-md relative group border border-black/5">
+                                {data.image && isImg ? <img src={data.image} className="w-full h-full object-cover" /> : data.imageFile || data.image ? <Icon name="file" size={48} /> : <Icon name="plus" size={48} />}
                                 {isProcessing && <div className="absolute inset-0 bg-white/60 flex items-center justify-center"><Icon name="loader" size={24} className="animate-spin text-[#8b5e3c]" /></div>}
                             </div>
-                            <input type="file" ref={fileRef} className="hidden" onChange={onFile} accept="image/*" />
+                            <input type="file" ref={fileRef} className="hidden" onChange={onFile} />
                             <div className="flex flex-col">
-                                <p className="text-[12px] text-[#a89688] font-black uppercase tracking-widest leading-relaxed">Bild wählen oder <br/> per <span className="text-[#8b5e3c]">Strg+V</span> einfügen</p>
+                                <p className="text-[12px] text-[#a89688] font-black uppercase tracking-widest leading-relaxed">Datei/Bild wählen oder <br/> per <span className="text-[#8b5e3c]">Strg+V</span> einfügen</p>
                             </div>
                         </div>
                     </div>
                     <button disabled={isProcessing} className={`w-full py-7 rounded-[2.5rem] font-black uppercase tracking-[0.4em] text-xl shadow-xl transition-all flex items-center justify-center gap-5 border-b-4 border-black/10 ${isProcessing ? 'bg-slate-400 cursor-not-allowed' : 'bg-[#8b5e3c] text-white active:scale-95'}`}>
-                        {isProcessing ? <><Icon name="loader" size={28} className="animate-spin" /> Wird gespeichert...</> : <><Icon name="pin" size={32} /> Anheften</>}
+                        {isProcessing ? <><Icon name="loader" size={28} className="animate-spin" /> Wird gespeichert...</> : <><Icon name="board" size={32} /> Anheften</>}
                     </button>
                 </form>
             );
         };
 
         const DeleteModal = ({ onCancel, onConfirm, type, itemName }) => (
-            <div className="fixed inset-0 bg-[#2d2824]/95 backdrop-blur-3xl z-[100] flex items-center justify-center p-4">
-                <div className="bg-white p-16 rounded-[5rem] max-w-sm w-full text-center shadow-2xl animate-fade-in">
+            <div className="fixed inset-0 bg-[#2d2824]/90 backdrop-blur-3xl z-[100] flex items-center justify-center p-4">
+                <div className="bg-white p-16 rounded-[5rem] max-w-sm w-full text-center shadow-2xl animate-fade-in border border-white/10">
                     <div className="w-28 h-28 bg-red-50 text-red-500 rounded-[3rem] flex items-center justify-center mx-auto mb-12 shadow-inner"><Icon name="trash2" size={56} /></div>
-                    <h3 className="font-black text-3xl mb-4 tracking-tighter text-[#3e362e] uppercase">{type === 'board' ? 'Pinnwand löschen?' : 'Eintrag löschen?'}</h3>
+                    <h3 className="font-black text-3xl mb-4 tracking-tighter text-[#3e362e] uppercase leading-none">{type === 'board' ? 'Pinnwand löschen?' : 'Eintrag löschen?'}</h3>
                     <p className="text-[#8b5e3c] font-black uppercase text-sm mb-6 leading-tight break-words">"{itemName}"</p>
                     <div className="flex flex-col gap-5">
                         <button onClick={onConfirm} className="w-full py-7 bg-red-500 rounded-[2.2rem] font-black uppercase tracking-widest text-white shadow-xl active:scale-95 transition-all">Löschen</button>
